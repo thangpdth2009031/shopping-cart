@@ -26,4 +26,5 @@ Route::prefix('/shopping')->group(function () {
     Route::get('/add', [ShoppingCartController::class, 'add'])->name('thang');
     Route::get('/cart', [ShoppingCartController::class, 'show']);
     Route::get('/remove', [ShoppingCartController::class, 'remove']);
+    Route::post('/save', [ShoppingCartController::class, 'save']);
 });

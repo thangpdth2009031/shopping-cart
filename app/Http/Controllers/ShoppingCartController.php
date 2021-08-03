@@ -2,8 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Order;
+use App\Models\OrderDetail;
 use App\Models\Products;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 
 class ShoppingCartController extends Controller
@@ -55,11 +59,14 @@ class ShoppingCartController extends Controller
         $shoppingCart[$productId] = $cartItem;
         //Lưu shoppingcart vào lại trong session
         Session::put('shoppingCart', $shoppingCart);
-        Session::flash('success-msg', 'Thêm sản phẩm vào giỏ hàng thành công!');
+        Session::flash('message', 'Thêm sản phẩm vào giỏ hàng thành công!');
         return redirect('/shopping/cart')->with('message', $message);
     }
 
     public function show() {
+        if (!Session::has('shoppingCart')) {
+            Session::put('shoppingCart', []);
+        }
         $shoppingCart = Session::get('shoppingCart');
         return view('cart', [
             'shoppingCart'=>$shoppingCart
@@ -75,5 +82,68 @@ class ShoppingCartController extends Controller
             Session::put('shoppingCart', $shoppingCart);
             return redirect('/shopping/cart')->with('remove', 'Xoá sản phẩm khỏi giỏ hàng thành công!');
         }
+    }
+
+    public function save(Request $request){
+        //shoppingCart(cartItem1, cartItem2)
+        //Kiểm tra thông tin giỏ hàng, nếu không có sản phẩm trả về trang products
+        if (!Session::has('shoppingCart') || count(Session::get('shoppingCart')) == 0) {
+            Session::flash('error-msg', 'Hiện tại không có sản phẩm nào trong giỏ hàng!');
+            return redirect('/shopping/list');
+        }
+        //Chuyển đổi từ shopping cart sang oder, từng cartItem sẽ chuyển thành order
+        $shoppingCart = Session::get('shoppingCart');
+        $order = new Order();
+        $order->totalPrice = 0;
+        $order->customerId = 1;//Sau này phải lấy thông tin người dùng đang đăng nhập hiện tại.
+        $order->shipName = $request->get('shipName');
+        $order->shipPhone = $request->get('shipPhone');
+        $order->shipAddress = $request->get('shipAddress');
+        $order->note = $request->get('note');
+        $order->isCheckOut = false;//default là đang thanh toán.
+        $order->created_at = Carbon::now();//Thời gian tạo đơn hàng.
+        $order->updated_at = Carbon::now();//Thời gian tạo đơn hàng.
+        $order->status = 0; //default là chờ confirm.
+        //Tạo ra mảng orderDetail để lưu thông tin của các item.
+        $orderDetails = [];
+        $messageError = '';
+        foreach ($shoppingCart as $cartItem) {
+            $product = Products::find($cartItem->id);
+            if ($product == null) {
+                $messageError = 'Có lỗi xảy ra, sản phẩm với id'. $cartItem->id . 'không tồn tại hoặc đã bị xoá';
+                break;
+            }
+            $orderDetail = new OrderDetail();
+            $orderDetail->productId = $cartItem->id;
+            $orderDetail->unitPrice = $cartItem->price;
+            $orderDetail->quantity = $cartItem->quantity;
+            $order->totalPrice += $orderDetail->quantity * $orderDetail->unitPrice;
+            array_push($orderDetails, $orderDetail);
+        }
+        if (count($orderDetails)== 0) {
+            Session::flash('error-msg', $messageError);
+            return 1;
+            //return redirect('/shopping/list');
+        }
+        try {
+            DB::beginTransaction();
+            //database queries here
+            $order->save();//order sau dòng code này có id.
+            $orderDetailArray = [];
+            foreach ($orderDetails as $orderDetail) {
+                $orderDetail->orderId = $order->id;
+                array_push($orderDetailArray, $orderDetail->toArray());
+            }
+            OrderDetail::insert($orderDetailArray);
+            DB::commit();//finish transaction, tất cả được update database.
+            Session::forget('shoppingCart');
+            Session::flash('success-msg', 'Lưu đơn hàng thành công!');
+        } catch (\Exception $exception) {
+            DB::rollBack();//rollback, không có gì thay đổi trong database cả.
+            Session::flash('error-msg', 'Lưu đơn hàng thất bại!');
+            return $exception;
+
+        }
+        return redirect('/shopping/list');
     }
 }
