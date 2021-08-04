@@ -19,7 +19,6 @@ class CreateProductsTable extends Migration
             $table->text('thumbnail');
             $table->double('price');
             $table->timestamps();
-            $table->softDeletes();
         });
     }
 
